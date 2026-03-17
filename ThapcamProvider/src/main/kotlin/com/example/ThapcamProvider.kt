@@ -164,16 +164,15 @@ class ThapcamProvider : MainAPI() {
 
                         // FIX: dùng newExtractorLink thay vì constructor deprecated
                         callback(
-                            newExtractorLink(
-                                source  = source.name,
-                                name    = label,
-                                url     = link.url,
-                                type    = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
-                            ) {
-                                this.referer = referer
-                                this.quality = Qualities.Unknown.value
-                                this.headers = headers
-                            }
+                            ExtractorLink(
+                                source        = source.name,
+                                name          = label,
+                                url           = link.url,
+                                referer       = referer,
+                                quality       = Qualities.Unknown.value,
+                                isM3u8        = isHls,
+                                headers       = headers,
+                            )
                         )
                         found = true
                     }
