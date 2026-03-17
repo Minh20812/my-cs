@@ -1,0 +1,38 @@
+[
+    {
+        "iconUrl": "https://tctv.pro/10cam-logo-app-light.jpg",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/Minh20812/my-cs",
+        "fileSize": 23603,
+        "status": 1,
+        "authors": [
+            "community"
+        ],
+        "tvTypes": [
+            "Live"
+        ],
+        "version": 1,
+        "internalName": "ThapcamProvider",
+        "description": "Xem the thao truc tiep - ThapcamTV",
+        "url": "https://raw.githubusercontent.com/Minh20812/my-cs/builds/ThapcamProvider.cs3",
+        "name": "ThapcamProvider"
+    },
+    {
+        "iconUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Natgeo_logo.svg/200px-Natgeo_logo.svg.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/Minh20812/my-cs",
+        "fileSize": 16095,
+        "status": 1,
+        "authors": [
+            "community"
+        ],
+        "tvTypes": [
+            "Movie"
+        ],
+        "version": 1,
+        "internalName": "YNProvider",
+        "description": "Youtube Narrator Provider - Video YouTube + Audio Archive.org",
+        "url": "https://raw.githubusercontent.com/Minh20812/my-cs/builds/YNProvider.cs3",
+        "name": "YNProvider"
+    }
+]
