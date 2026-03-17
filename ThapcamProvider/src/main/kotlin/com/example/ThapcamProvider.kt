@@ -84,8 +84,8 @@ class ThapcamProvider : MainAPI() {
 
     private fun Channel.poster() = image?.url?.ifBlank { null } ?: org_metadata?.thumb
 
-    private fun channelUrl(id: String) = "thapcam://channel/$id"
-    private fun channelId(url: String) = url.removePrefix("thapcam://channel/")
+    private fun channelUrl(id: String) = "$mainUrl/channel/$id"
+    private fun channelId(url: String) = url.substringAfterLast("/channel/")
 
     // ── Main page ──────────────────────────────────────────────────────────
 
@@ -164,15 +164,16 @@ class ThapcamProvider : MainAPI() {
 
                         // FIX: dùng newExtractorLink thay vì constructor deprecated
                         callback(
-                            ExtractorLink(
-                                source        = source.name,
-                                name          = label,
-                                url           = link.url,
-                                referer       = referer,
-                                quality       = Qualities.Unknown.value,
-                                isM3u8        = isHls,
-                                headers       = headers,
-                            )
+                            newExtractorLink(
+                                source = source.name,
+                                name   = label,
+                                url    = link.url,
+                                type   = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
+                            ) {
+                                this.referer  = referer
+                                this.quality  = Qualities.Unknown.value
+                                this.headers  = headers
+                            }
                         )
                         found = true
                     }
