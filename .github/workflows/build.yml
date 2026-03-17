@@ -43,6 +43,8 @@ jobs:
         uses: android-actions/setup-android@v2
 
       - name: Build Plugins
+        env:
+          API_URL: ${{ secrets.API_URL }}
         run: |
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew

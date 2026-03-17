@@ -8,4 +8,12 @@ cloudstream {
 }
 android {
     namespace = "com.example.thapcam"
+    
+    buildFeatures {
+        buildConfig = true
+    }
+    
+    defaultConfig {
+        buildConfigField("String", "API_URL", "\"${System.getenv("API_URL") ?: ""}\"")
+    }
 }

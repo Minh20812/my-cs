@@ -6,13 +6,13 @@ import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 
 class ThapcamProvider : MainAPI() {
 
-    override var mainUrl = "https://pub-26bab83910ab4b5781549d12d2f0ef6f.r2.dev"
+    override var mainUrl = com.example.thapcam.BuildConfig.API_URL.substringBeforeLast("/")
     override var name    = "ThapcamTV"
     override var lang    = "vi"
     override val hasMainPage    = true
     override val supportedTypes = setOf(TvType.Live)
 
-    private val apiUrl = "$mainUrl/thapcam.json"
+    private val apiUrl = com.example.thapcam.BuildConfig.API_URL
 
     // ── Data classes (dùng @JsonProperty của cloudstream built-in) ─────────
 
