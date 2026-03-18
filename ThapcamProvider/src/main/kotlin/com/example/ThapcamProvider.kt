@@ -6,7 +6,7 @@ import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 
 class ThapcamProvider : MainAPI() {
 
-    override var mainUrl = com.example.thapcam.BuildConfig.API_URL.substringBeforeLast("/")
+    override var mainUrl = "https://thapcamtvbc.mobi/truc-tiep"
     override var name    = "ThapcamTV"
     override var lang    = "vi"
     override val hasMainPage    = true
@@ -91,17 +91,43 @@ class ThapcamProvider : MainAPI() {
 
     override val mainPage = mainPageOf(apiUrl to "ThapcamTV")
 
+    private fun detectSport(league: String?): String {
+        if (league == null) return "⚽ Bóng đá"
+        val l = league.lowercase()
+        return when {
+            l.contains("wta") || l.contains("atp") || 
+            l.contains("tennis") || l.contains("singles") || 
+            l.contains("doubles")                          -> "🎾 Tennis"
+            
+            l.startsWith("sân")                            -> "🏸 Cầu lông"
+            
+            l.contains("nba") || l.contains("basketball") -> "🏀 Bóng rổ"
+            
+            l.contains("volleyball") || l.contains("bóng chuyền") -> "🏐 Bóng chuyền"
+            
+            else                                           -> "⚽ Bóng đá"
+        }
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         if (page > 1) return newHomePageResponse(request.name, emptyList())
-        val data  = fetchData()
-        val pages = data.groups.map { group ->
-            val items = group.channels.map { ch ->
+        
+        val allChannels = fetchData().groups.flatMap { it.channels }
+        
+        // Group theo môn thể thao
+        val bySport = allChannels.groupBy { ch ->
+            detectSport(ch.org_metadata?.league)
+        }
+        
+        val pages = bySport.map { (sport, channels) ->
+            val items = channels.map { ch ->
                 newMovieSearchResponse(ch.name, channelUrl(ch.id), TvType.Live) {
                     posterUrl = ch.poster()
                 }
             }
-            HomePageList(group.name, items, isHorizontalImages = true)
+            HomePageList(sport, items, isHorizontalImages = true)
         }
+        
         return newHomePageResponse(pages, hasNext = false)
     }
 
