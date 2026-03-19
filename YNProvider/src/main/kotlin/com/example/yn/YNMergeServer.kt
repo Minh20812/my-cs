@@ -60,7 +60,7 @@ object YNMergeServer {
                 when {
                     path.startsWith("/master/") -> serveMaster(path.removePrefix("/master/"), output)
                     path.startsWith("/audio/")  -> serveAudio(path.removePrefix("/audio/"), output)
-                    else                        -> write404(output)
+                    else -> write404(output)
                 }
             }
         } catch (e: Exception) {
@@ -70,7 +70,8 @@ object YNMergeServer {
 
     private fun serveMaster(id: String, out: OutputStream) {
         val entry = YN_CATALOG.find { it.id == id } ?: return write404(out)
-        val videoUrl = getYouTubeVideoOnlyStream(id) ?: return write500(out, "Cannot get YouTube stream: $id")
+        val videoUrl = getYouTubeVideoOnlyStream(id)
+            ?: return write500(out, "Cannot get YouTube stream: $id")
 
         val body = buildString {
             appendLine("#EXTM3U")
@@ -97,47 +98,76 @@ object YNMergeServer {
         writeResponse(out, 200, "application/x-mpegURL", body)
     }
 
-    // ── YouTube: thử nhiều client để tăng tỉ lệ thành công ────────
+    // ── YouTube: clients trả URL không cần giải cipher ─────────────
 
-    private data class YtClient(val body: String, val userAgent: String)
+    private data class YtClient(
+        val clientName: String,
+        val clientVersion: String,
+        val userAgent: String,
+        val extraFields: String = ""
+    )
 
     private fun getYouTubeVideoOnlyStream(videoId: String): String? {
         val clients = listOf(
-            // Android client — ổn định nhất, trả URL trực tiếp
+            // IOS client — trả URL trực tiếp, không cần nsig decode
             YtClient(
-                """{"videoId":"$videoId","context":{"client":{"clientName":"ANDROID","clientVersion":"19.09.37","androidSdkVersion":30,"hl":"en","gl":"US"}}}""",
-                "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
+                clientName    = "IOS",
+                clientVersion = "19.29.1",
+                userAgent     = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)",
+                extraFields   = """"deviceModel":"iPhone16,2","osName":"iPhone","osVersion":"17.5.1.21F90","""
             ),
-            // TV client — fallback
+            // ANDROID_TESTSUITE — trả URL trực tiếp, không cần cipher
             YtClient(
-                """{"videoId":"$videoId","context":{"client":{"clientName":"TVHTML5","clientVersion":"7.20220325","hl":"en","gl":"US"}}}""",
-                "Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/537.36"
+                clientName    = "ANDROID_TESTSUITE",
+                clientVersion = "1.9",
+                userAgent     = "com.google.android.youtube/1.9 (Linux; U; Android 11) gzip",
+                extraFields   = """"androidSdkVersion":30,"""
             ),
-            // Web client — last resort
+            // ANDROID thông thường
             YtClient(
-                """{"videoId":"$videoId","context":{"client":{"clientName":"WEB","clientVersion":"2.20231219.04.00","hl":"en","gl":"US"}}}""",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                clientName    = "ANDROID",
+                clientVersion = "19.29.37",
+                userAgent     = "com.google.android.youtube/19.29.37 (Linux; U; Android 11) gzip",
+                extraFields   = """"androidSdkVersion":30,"""
             ),
         )
 
-        for (client in clients) {
-            val res = httpPost(
+        for (c in clients) {
+            val body = """{"videoId":"$videoId","context":{"client":{${c.extraFields}"clientName":"${c.clientName}","clientVersion":"${c.clientVersion}","hl":"en","gl":"US"}}}"""
+            val res  = httpPost(
                 "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-                client.body, "application/json",
-                mapOf("User-Agent" to client.userAgent)
+                body, "application/json",
+                mapOf(
+                    "User-Agent"   to c.userAgent,
+                    "Content-Type" to "application/json",
+                    "Origin"       to "https://www.youtube.com",
+                    "X-Youtube-Client-Name"    to c.clientName,
+                    "X-Youtube-Client-Version" to c.clientVersion,
+                )
             ) ?: continue
 
-            val url = parseVideoOnlyUrl(videoId, res)
+            // Kiểm tra playabilityStatus trước
+            val status = try {
+                JSONObject(res).getJSONObject("playabilityStatus").getString("status")
+            } catch (e: Exception) { "UNKNOWN" }
+
+            if (status != "OK") {
+                Log.w(TAG, "Client ${c.clientName} status=$status for $videoId")
+                continue
+            }
+
+            val url = parseVideoOnlyUrl(res)
             if (url != null) {
-                Log.i(TAG, "YouTube stream OK for $videoId")
+                Log.i(TAG, "Got stream via ${c.clientName} for $videoId")
                 return url
             }
         }
+
         Log.e(TAG, "All YouTube clients failed for $videoId")
         return null
     }
 
-    private fun parseVideoOnlyUrl(videoId: String, res: String): String? {
+    private fun parseVideoOnlyUrl(res: String): String? {
         return try {
             val formats = JSONObject(res)
                 .getJSONObject("streamingData")
@@ -149,14 +179,19 @@ object YNMergeServer {
                 val mime   = f.optString("mimeType", "")
                 val height = f.optInt("height", 0)
                 val url    = f.optString("url", "")
-                if (mime.startsWith("video/mp4") && url.isNotBlank()) {
-                    if (height in 480..720 && height > bestHeight) { bestUrl = url; bestHeight = height }
-                    else if (bestHeight == 0) bestUrl = url
+                // Chỉ lấy video/mp4 có URL trực tiếp (không có signatureCipher)
+                if (mime.startsWith("video/mp4") && url.isNotBlank()
+                    && !f.has("signatureCipher") && !f.has("cipher")) {
+                    if (height in 480..720 && height > bestHeight) {
+                        bestUrl = url; bestHeight = height
+                    } else if (bestHeight == 0) {
+                        bestUrl = url
+                    }
                 }
             }
             bestUrl.ifBlank { null }
         } catch (e: Exception) {
-            Log.e(TAG, "YouTube parse error: $videoId", e); null
+            Log.e(TAG, "Parse error", e); null
         }
     }
 
@@ -177,11 +212,14 @@ object YNMergeServer {
     private fun httpPost(url: String, body: String, ct: String, headers: Map<String, String>): String? = try {
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"; doOutput = true
-            connectTimeout = 10_000; readTimeout = 15_000
+            connectTimeout = 10_000; readTimeout = 20_000
             setRequestProperty("Content-Type", ct)
             headers.forEach { (k, v) -> setRequestProperty(k, v) }
             outputStream.write(body.toByteArray(Charsets.UTF_8))
         }
-        if (c.responseCode == 200) c.inputStream.bufferedReader().readText() else null
+        if (c.responseCode == 200) c.inputStream.bufferedReader().readText() else {
+            Log.w(TAG, "HTTP ${c.responseCode} for $url")
+            null
+        }
     } catch (e: IOException) { Log.e(TAG, "POST error: $url", e); null }
 }
