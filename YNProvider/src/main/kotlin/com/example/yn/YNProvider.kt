@@ -86,11 +86,10 @@ class YNProvider : MainAPI() {
         val id    = idFromUrl(data)
         val entry = YN_CATALOG.find { it.id == id } ?: return false
 
-        // Test đơn giản: trả thẳng audio Archive.org, không qua NanoHTTPD
         callback(
             newExtractorLink(
                 source = name,
-                name   = "▶ Audio Only Test",
+                name   = "▶ ${entry.title}",
                 url    = entry.audioUrl,
                 type   = ExtractorLinkType.VIDEO,
             ) {
