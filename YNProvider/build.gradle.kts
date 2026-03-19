@@ -13,6 +13,6 @@ android {
 }
 
 dependencies {
-    val implementation by configurations
-    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    val apk by configurations
+    apk("org.nanohttpd:nanohttpd:2.3.1")
 }
