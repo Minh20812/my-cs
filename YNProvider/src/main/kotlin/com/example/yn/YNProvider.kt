@@ -2,6 +2,7 @@ package com.example.yn
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
+import android.util.Log
 
 class YNProvider : MainAPI() {
 
@@ -54,6 +55,10 @@ class YNProvider : MainAPI() {
         val entry = YN_CATALOG.find { it.id == id } ?: return false
 
         YNMergeServer.ensureStarted()
+
+        val debugUrl = YNMergeServer.masterUrl(id)
+            .replace("master", "debug") // chưa cần implement
+        Log.d("YNDebug", "Master URL: $debugUrl")
 
         callback(newExtractorLink(
             source = name,

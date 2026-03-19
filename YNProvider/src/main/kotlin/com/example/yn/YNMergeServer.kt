@@ -98,78 +98,74 @@ object YNMergeServer {
         writeResponse(out, 200, "application/x-mpegURL", body)
     }
 
-    // ── YouTube: clients trả URL không cần giải cipher ─────────────
+    // ── YouTube clients với API key đúng ───────────────────────────
 
     private data class YtClient(
-        val clientName: String,
-        val clientVersion: String,
+        val name: String,
+        val version: String,
+        val apiKey: String,
         val userAgent: String,
-        val extraFields: String = ""
+        val extra: String = ""
+    )
+
+    private val YT_CLIENTS = listOf(
+        // ANDROID_TESTSUITE — không cần cipher, URL trực tiếp
+        YtClient(
+            name      = "ANDROID_TESTSUITE",
+            version   = "1.9",
+            apiKey    = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+            userAgent = "com.google.android.youtube/1.9 (Linux; U; Android 11) gzip",
+            extra     = """"androidSdkVersion":30,"""
+        ),
+        // IOS — không cần cipher
+        YtClient(
+            name      = "IOS",
+            version   = "19.29.1",
+            apiKey    = "AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc",
+            userAgent = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)",
+            extra     = """"deviceModel":"iPhone16,2","osName":"iPhone","osVersion":"17.5.1.21F90","""
+        ),
+        // ANDROID thường
+        YtClient(
+            name      = "ANDROID",
+            version   = "19.29.37",
+            apiKey    = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+            userAgent = "com.google.android.youtube/19.29.37 (Linux; U; Android 11) gzip",
+            extra     = """"androidSdkVersion":30,"""
+        ),
     )
 
     private fun getYouTubeVideoOnlyStream(videoId: String): String? {
-        val clients = listOf(
-            // IOS client — trả URL trực tiếp, không cần nsig decode
-            YtClient(
-                clientName    = "IOS",
-                clientVersion = "19.29.1",
-                userAgent     = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)",
-                extraFields   = """"deviceModel":"iPhone16,2","osName":"iPhone","osVersion":"17.5.1.21F90","""
-            ),
-            // ANDROID_TESTSUITE — trả URL trực tiếp, không cần cipher
-            YtClient(
-                clientName    = "ANDROID_TESTSUITE",
-                clientVersion = "1.9",
-                userAgent     = "com.google.android.youtube/1.9 (Linux; U; Android 11) gzip",
-                extraFields   = """"androidSdkVersion":30,"""
-            ),
-            // ANDROID thông thường
-            YtClient(
-                clientName    = "ANDROID",
-                clientVersion = "19.29.37",
-                userAgent     = "com.google.android.youtube/19.29.37 (Linux; U; Android 11) gzip",
-                extraFields   = """"androidSdkVersion":30,"""
-            ),
-        )
+        for (c in YT_CLIENTS) {
+            val apiUrl = "https://www.youtube.com/youtubei/v1/player?key=${c.apiKey}&prettyPrint=false"
+            val body = """{"videoId":"$videoId","context":{"client":{${c.extra}"clientName":"${c.name}","clientVersion":"${c.version}","hl":"en","gl":"US"}}}"""
 
-        for (c in clients) {
-            val body = """{"videoId":"$videoId","context":{"client":{${c.extraFields}"clientName":"${c.clientName}","clientVersion":"${c.clientVersion}","hl":"en","gl":"US"}}}"""
-            val res  = httpPost(
-                "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-                body, "application/json",
-                mapOf(
-                    "User-Agent"   to c.userAgent,
-                    "Content-Type" to "application/json",
-                    "Origin"       to "https://www.youtube.com",
-                    "X-Youtube-Client-Name"    to c.clientName,
-                    "X-Youtube-Client-Version" to c.clientVersion,
-                )
-            ) ?: continue
+            val res = httpPost(apiUrl, body, "application/json", mapOf(
+                "User-Agent"               to c.userAgent,
+                "X-Youtube-Client-Name"    to c.name,
+                "X-Youtube-Client-Version" to c.version,
+                "Origin"                   to "https://www.youtube.com",
+            )) ?: continue
 
-            // Kiểm tra playabilityStatus trước
-            val status = try {
-                JSONObject(res).getJSONObject("playabilityStatus").getString("status")
-            } catch (e: Exception) { "UNKNOWN" }
+            val json = try { JSONObject(res) } catch (e: Exception) { continue }
 
-            if (status != "OK") {
-                Log.w(TAG, "Client ${c.clientName} status=$status for $videoId")
-                continue
-            }
+            val status = json.optJSONObject("playabilityStatus")?.optString("status") ?: continue
+            Log.i(TAG, "Client ${c.name} → status=$status for $videoId")
+            if (status != "OK") continue
 
-            val url = parseVideoOnlyUrl(res)
+            val url = parseVideoOnlyUrl(json)
             if (url != null) {
-                Log.i(TAG, "Got stream via ${c.clientName} for $videoId")
+                Log.i(TAG, "✅ Got stream via ${c.name} for $videoId")
                 return url
             }
         }
-
-        Log.e(TAG, "All YouTube clients failed for $videoId")
+        Log.e(TAG, "❌ All clients failed for $videoId")
         return null
     }
 
-    private fun parseVideoOnlyUrl(res: String): String? {
+    private fun parseVideoOnlyUrl(json: JSONObject): String? {
         return try {
-            val formats = JSONObject(res)
+            val formats = json
                 .getJSONObject("streamingData")
                 .getJSONArray("adaptiveFormats")
 
@@ -179,9 +175,11 @@ object YNMergeServer {
                 val mime   = f.optString("mimeType", "")
                 val height = f.optInt("height", 0)
                 val url    = f.optString("url", "")
-                // Chỉ lấy video/mp4 có URL trực tiếp (không có signatureCipher)
-                if (mime.startsWith("video/mp4") && url.isNotBlank()
-                    && !f.has("signatureCipher") && !f.has("cipher")) {
+                // Chỉ nhận URL trực tiếp (không có cipher)
+                if (mime.startsWith("video/mp4")
+                    && url.isNotBlank()
+                    && !f.has("signatureCipher")
+                    && !f.has("cipher")) {
                     if (height in 480..720 && height > bestHeight) {
                         bestUrl = url; bestHeight = height
                     } else if (bestHeight == 0) {
@@ -217,9 +215,7 @@ object YNMergeServer {
             headers.forEach { (k, v) -> setRequestProperty(k, v) }
             outputStream.write(body.toByteArray(Charsets.UTF_8))
         }
-        if (c.responseCode == 200) c.inputStream.bufferedReader().readText() else {
-            Log.w(TAG, "HTTP ${c.responseCode} for $url")
-            null
-        }
+        if (c.responseCode == 200) c.inputStream.bufferedReader().readText()
+        else { Log.w(TAG, "HTTP ${c.responseCode} for $url"); null }
     } catch (e: IOException) { Log.e(TAG, "POST error: $url", e); null }
 }
