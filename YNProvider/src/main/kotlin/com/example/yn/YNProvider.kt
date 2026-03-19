@@ -98,7 +98,7 @@ class YNProvider : MainAPI() {
                 url    = YNMergeServer.masterUrl(id),
                 type   = ExtractorLinkType.M3U8,
             ) {
-                quality = Qualities.HD.value
+                quality = Qualities.Unknown.value
                 referer = "https://www.youtube.com/watch?v=$id"
             }
         )
