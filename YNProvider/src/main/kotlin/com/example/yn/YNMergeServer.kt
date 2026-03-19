@@ -9,10 +9,6 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.URL
 
-/**
- * YNMergeServer — HTTP server tự viết bằng java.net.ServerSocket.
- * Không cần NanoHTTPD hay bất kỳ thư viện ngoài nào.
- */
 object YNMergeServer {
 
     private const val TAG = "YNMergeServer"
@@ -23,8 +19,6 @@ object YNMergeServer {
     private var serverSocket: ServerSocket? = null
 
     fun masterUrl(id: String) = "$HOST/master/$id"
-
-    // ── Start / Stop ───────────────────────────────────────────────
 
     fun ensureStarted() {
         if (running) return
@@ -55,8 +49,6 @@ object YNMergeServer {
         serverSocket = null
     }
 
-    // ── Handle Client ──────────────────────────────────────────────
-
     private fun handleClient(socket: Socket) {
         try {
             socket.use {
@@ -76,8 +68,6 @@ object YNMergeServer {
         }
     }
 
-    // ── /master/{id} ───────────────────────────────────────────────
-
     private fun serveMaster(id: String, out: OutputStream) {
         val entry = YN_CATALOG.find { it.id == id } ?: return write404(out)
         val videoUrl = getYouTubeVideoOnlyStream(id) ?: return write500(out, "Cannot get YouTube stream: $id")
@@ -93,8 +83,6 @@ object YNMergeServer {
         writeResponse(out, 200, "application/x-mpegURL", body)
     }
 
-    // ── /audio/{id} ────────────────────────────────────────────────
-
     private fun serveAudio(id: String, out: OutputStream) {
         val entry = YN_CATALOG.find { it.id == id } ?: return write404(out)
         val body = buildString {
@@ -109,36 +97,73 @@ object YNMergeServer {
         writeResponse(out, 200, "application/x-mpegURL", body)
     }
 
-    // ── YouTube InnerTube API ──────────────────────────────────────
+    // ── YouTube: thử nhiều client để tăng tỉ lệ thành công ────────
+
+    private data class YtClient(val body: String, val userAgent: String)
 
     private fun getYouTubeVideoOnlyStream(videoId: String): String? {
-        val body = """{"videoId":"$videoId","context":{"client":{"clientName":"TVHTML5","clientVersion":"7.20220325","hl":"en","gl":"US"}}}"""
-        val res  = httpPost(
-            "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-            body, "application/json",
-            mapOf("User-Agent" to "Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/537.36")
-        ) ?: return null
+        val clients = listOf(
+            // Android client — ổn định nhất, trả URL trực tiếp
+            YtClient(
+                """{"videoId":"$videoId","context":{"client":{"clientName":"ANDROID","clientVersion":"19.09.37","androidSdkVersion":30,"hl":"en","gl":"US"}}}""",
+                "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"
+            ),
+            // TV client — fallback
+            YtClient(
+                """{"videoId":"$videoId","context":{"client":{"clientName":"TVHTML5","clientVersion":"7.20220325","hl":"en","gl":"US"}}}""",
+                "Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/537.36"
+            ),
+            // Web client — last resort
+            YtClient(
+                """{"videoId":"$videoId","context":{"client":{"clientName":"WEB","clientVersion":"2.20231219.04.00","hl":"en","gl":"US"}}}""",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            ),
+        )
+
+        for (client in clients) {
+            val res = httpPost(
+                "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+                client.body, "application/json",
+                mapOf("User-Agent" to client.userAgent)
+            ) ?: continue
+
+            val url = parseVideoOnlyUrl(videoId, res)
+            if (url != null) {
+                Log.i(TAG, "YouTube stream OK for $videoId")
+                return url
+            }
+        }
+        Log.e(TAG, "All YouTube clients failed for $videoId")
+        return null
+    }
+
+    private fun parseVideoOnlyUrl(videoId: String, res: String): String? {
         return try {
-            val formats = JSONObject(res).getJSONObject("streamingData").getJSONArray("adaptiveFormats")
+            val formats = JSONObject(res)
+                .getJSONObject("streamingData")
+                .getJSONArray("adaptiveFormats")
+
             var bestUrl = ""; var bestHeight = 0
             for (i in 0 until formats.length()) {
-                val f = formats.getJSONObject(i)
-                val mime = f.optString("mimeType", "")
+                val f      = formats.getJSONObject(i)
+                val mime   = f.optString("mimeType", "")
                 val height = f.optInt("height", 0)
-                val url = f.optString("url", "")
+                val url    = f.optString("url", "")
                 if (mime.startsWith("video/mp4") && url.isNotBlank()) {
                     if (height in 480..720 && height > bestHeight) { bestUrl = url; bestHeight = height }
                     else if (bestHeight == 0) bestUrl = url
                 }
             }
             bestUrl.ifBlank { null }
-        } catch (e: Exception) { Log.e(TAG, "YouTube parse error: $videoId", e); null }
+        } catch (e: Exception) {
+            Log.e(TAG, "YouTube parse error: $videoId", e); null
+        }
     }
 
     // ── HTTP Helpers ───────────────────────────────────────────────
 
     private fun writeResponse(out: OutputStream, code: Int, ct: String, body: String) {
-        val bytes = body.toByteArray(Charsets.UTF_8)
+        val bytes  = body.toByteArray(Charsets.UTF_8)
         val status = if (code == 200) "200 OK" else "$code Error"
         val header = "HTTP/1.1 $status\r\nContent-Type: $ct\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
         out.write(header.toByteArray(Charsets.UTF_8))
