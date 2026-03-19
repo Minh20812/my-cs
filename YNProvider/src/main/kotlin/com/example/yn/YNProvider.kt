@@ -5,7 +5,7 @@ import com.lagradost.cloudstream3.utils.*
 
 class YNProvider : MainAPI() {
 
-    override var mainUrl = "https://www.youtube.com"
+    override var mainUrl = "https://ynprovider.local"
     override var name    = "YN Provider"
     override var lang    = "vi"
     override val hasMainPage    = true
@@ -14,8 +14,8 @@ class YNProvider : MainAPI() {
     // ── URL helpers ────────────────────────────────────────────────
 
     /** URL nội bộ dùng làm key — không phải URL phát thật */
-    private fun entryUrl(id: String)   = "yn://video/$id"
-    private fun idFromUrl(url: String) = url.removePrefix("yn://video/")
+    private fun entryUrl(id: String)   = "$mainUrl/video/$id"
+    private fun idFromUrl(url: String) = url.substringAfterLast("/video/")
 
     /** Thumbnail YouTube chất lượng cao */
     private fun thumb(id: String) = "https://i.ytimg.com/vi/$id/maxresdefault.jpg"
