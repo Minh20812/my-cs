@@ -86,23 +86,17 @@ class YNProvider : MainAPI() {
         val id    = idFromUrl(data)
         val entry = YN_CATALOG.find { it.id == id } ?: return false
 
-        // Đảm bảo local server đang chạy
-        YNMergeServer.ensureStarted()
-
-        // Trả về HLS master playlist do YNMergeServer tạo
-        // → ExoPlayer tự ghép video YouTube + audio Archive.org
+        // Test đơn giản: trả thẳng audio Archive.org, không qua NanoHTTPD
         callback(
             newExtractorLink(
                 source = name,
-                name   = "▶ ${entry.title}",
-                url    = YNMergeServer.masterUrl(id),
-                type   = ExtractorLinkType.M3U8,
+                name   = "▶ Audio Only Test",
+                url    = entry.audioUrl,
+                type   = ExtractorLinkType.VIDEO,
             ) {
                 quality = Qualities.Unknown.value
-                referer = "https://www.youtube.com/watch?v=$id"
             }
         )
-
         return true
     }
 }

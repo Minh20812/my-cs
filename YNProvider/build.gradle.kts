@@ -11,8 +11,3 @@ cloudstream {
 android {
     namespace = "com.example.yn"
 }
-
-dependencies {
-    val implementation by configurations
-    implementation("org.nanohttpd:nanohttpd:2.3.1")
-}
