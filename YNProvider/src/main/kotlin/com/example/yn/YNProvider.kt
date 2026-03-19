@@ -2,7 +2,6 @@ package com.example.yn
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import android.util.Log
 
 class YNProvider : MainAPI() {
 
@@ -56,18 +55,47 @@ class YNProvider : MainAPI() {
 
         YNMergeServer.ensureStarted()
 
-        val debugUrl = YNMergeServer.masterUrl(id)
-            .replace("master", "debug") // chưa cần implement
-        Log.d("YNDebug", "Master URL: $debugUrl")
+        // Dùng CloudStream's built-in YouTube extractor
+        // loadExtractor tự xử lý cipher, key, mọi thứ
+        val ytLinks = mutableListOf<ExtractorLink>()
+        loadExtractor(
+            url              = "https://www.youtube.com/watch?v=$id",
+            referer          = "https://www.youtube.com",
+            subtitleCallback = subtitleCallback,
+            callback         = { link -> ytLinks.add(link) }
+        )
 
+        // Chọn link video chất lượng tốt nhất (ưu tiên 720p)
+        val bestVideoUrl = ytLinks
+            .filter { it.type == ExtractorLinkType.VIDEO || it.type == ExtractorLinkType.M3U8 }
+            .maxByOrNull { it.quality }
+            ?.url
+
+        if (bestVideoUrl != null) {
+            // Cache URL để MergeServer dùng
+            YNMergeServer.videoUrlCache[id] = bestVideoUrl
+
+            // Trả về HLS master playlist ghép video + Archive.org audio
+            callback(newExtractorLink(
+                source = name,
+                name   = "▶ ${entry.title}",
+                url    = YNMergeServer.masterUrl(id),
+                type   = ExtractorLinkType.M3U8,
+            ) {
+                quality = Qualities.Unknown.value
+                referer = "https://www.youtube.com/watch?v=$id"
+            })
+            return true
+        }
+
+        // Fallback: không lấy được video → chỉ phát audio
         callback(newExtractorLink(
             source = name,
-            name   = "▶ ${entry.title}",
-            url    = YNMergeServer.masterUrl(id),
-            type   = ExtractorLinkType.M3U8,
+            name   = "🎙️ Audio only",
+            url    = entry.audioUrl,
+            type   = ExtractorLinkType.VIDEO,
         ) {
             quality = Qualities.Unknown.value
-            referer = "https://www.youtube.com/watch?v=$id"
         })
         return true
     }
